@@ -12,14 +12,8 @@ This thing here decodes greenpasses based on their QR code readings. The string 
 
 Decoding works as follows:
 
-QR code --> QR DECODER --> RAW QR-decoded string 
- --> BASE45 decoder --> zlib compressed string --> COSE string 
- --> CBOR decoder --> CBOR string --> CBOR decoder --> final JSON string
-
-
-
-
-
-
+QR code --(QR DECODER)--> RAW QR-decoded string 
+ --(BASE45 decoder)--> zlib compressed string --(unzip)--> COSE string 
+ --(CBOR decoder)--> CBOR string --(CBOR decoder)--> final JSON string
 
 
