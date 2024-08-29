@@ -1,0 +1,18 @@
+{
+  "name": "decode",
+  "description": "Decode European COVID greenpasses",
+  "version": "0.1.1",
+  "perl": "6.*",
+  "authors": [
+    "Teppo Saari"
+  ],
+  "depends": ["Compress::Zlib", "CBOR::Simple"],
+  "build-depends": [],
+  "test-depends": [],
+  "provides": {
+    "decode": "decode.raku"
+  },
+  "resources": [ "examples/Lists/test.txt"],
+  "license": "The Unlicense",
+  "source-url": "https://github.com/kapitaali/greenpass/tree/main/raku-greenpass-decoder"
+}

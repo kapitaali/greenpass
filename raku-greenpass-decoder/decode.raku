@@ -15,12 +15,11 @@ This thing here decodes greenpasses based on their QR code readings. The string 
 
 Decoding works as follows:
 
-QR code --> QR DECODER --> RAW QR-decoded string 
- --> BASE45 decoder --> zlib compressed string --> COSE string 
- --> CBOR decoder --> CBOR string --> CBOR decoder --> final JSON string
+QR code --(QR DECODER)--> RAW QR-decoded string 
+ --(BASE45 decoder)--> zlib compressed string --(unzip)--> COSE string 
+ --(CBOR decoder)--> CBOR string --(CBOR decoder)--> final JSON string
 
 =end pod
-
 
 sub MAIN (
   Str $hc1string, #= greenpass data string "HC1:..."
@@ -61,7 +60,7 @@ sub MAIN (
   
   if ($diagnostics) { say cbor-diagnostic($decompressed); }
 
-}
+};
 
 sub divmod ($a, $b) {
     my $remainder = $a;
@@ -71,7 +70,7 @@ sub divmod ($a, $b) {
 	    $quotient = ($a - $remainder) / $b;
     }
     return $quotient, $remainder;
-}
+};
 
 constant %b45 = (
     '0' => 0, '1' => 1, '2' => 2, '3' => 3, '4' => 4, '5' => 5, '6' => 6, '7' => 7, '8' => 8,
