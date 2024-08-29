@@ -1,4 +1,4 @@
 # ignore compiled raku files
-.precomp*
+!.precomp*
 # rust ignore
-target
+!target
