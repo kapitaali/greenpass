@@ -1,5 +1,5 @@
-package com.example;
-import com.example.Base45;
+package com.kapitaali;
+import com.kapitaali.Base45;
 import com.upokecenter.cbor.CBORObject;
 import com.upokecenter.cbor.CBORType;
 import java.util.zip.DataFormatException;
