@@ -11,9 +11,7 @@ use CBOR::Simple;
 =AUTHOR Teppo Saari
 
 This thing here decodes greenpasses based on their QR code readings. The string starts
- 'HC1:... 
-
- NOTE: The HC1 string MUST BE QUOTED! Otherwise space characters are ignored.
+ "HC1:..."
 
 Decoding works as follows:
 
@@ -25,9 +23,8 @@ QR code --> QR DECODER --> RAW QR-decoded string
 
 
 sub MAIN (
-  Str $hc1string, #= quoted greenpass data string 'HC1:...'
+  Str $hc1string #= greenpass data string "HC1:..."
   # try for example 'HC1:NCFZ80C80T9WTWGSLKC 49794IJFE8KY5DB4FBB7Z6*70%*8FN0XLCB*1WY01BC20DD97TK0F90KECTHGWJC0FD$F5AIA%G7X+AQB9746NG7QB9ZR62OA+S9ZH9YL6ES85IBP1BEDB9C9WR6GZAG471T8UPC3JCLC9FVCPD0LVC6JD846Y96C463W5VX6+EDS8F8UADZCTOAOPCAECU34F/D6%ECECKPCU34F/DBWENWEBWE-3EN44:+CP+88/DCEC3VCB$D% D3IA4W5646946%96X47.JCP9EJY8L/5M/5546.96D463KC.SC4KCD3DX47B46IL6646H*6Z/ER2DD46JH8946JPCT3E5JDLA7+/68463W5/A6..DX%DZJC4/D5UA QE:DC8KD JCF/D9Z9MWE2DD$N9*KE144+KE:WO50E8ZKW.CAWEITA2OAAB8JH9MPCG/D.PETB8MTA0S7RB8SB96DBJH9CY8EB8$PC5$CUZC$$5Y$527B:W9V%V:/OU OC9PSZKCSMY/AN7BUCHU+R912LHGI-1CO50FUI*1E-OGFQBZEQ8N6%L%7GLJS:WI%NPKYGDUI+TL-5UPYUU M2/4GLI' 
-  Bool :$diagnostics #= see key, message and signature in hexadecimal binary
 ) {
   # raw QR-coded string
   my $testdata = $hc1string; 
@@ -39,34 +36,31 @@ sub MAIN (
   my Blob $decoded_b = Blob.new(@decoded);
 
   # decompress with zlib
-  if ($diagnostics) { 
-  say "-----------------------------------------------------------------";
-    say "BASE45: ", $testdata.substr(4);
-    say @decoded;
-  }
   my $decompressed = uncompress($decoded_b);
   
+  #return $decompressed;
+
+
   # decode CBOR
-  my $data = cbor-deco($decompressed);
+  my $data = cbor-deco(Blob.new($decompressed));
   
   # if you want to print JSON, you will need to cbor-deco data twice, as per
   # https://stackoverflow.com/questions/68612766/decode-a-base45-string-that-will-lead-to-a-cbor-compressed-file
-  my $headers1 = $data.value[0];
-  my $headers2 = $data.value[1];
+  my $headers1 = $data.tag-number;
+  my $headers2 = $data.value[0];
   my $cbor_data = $data.value[2];
   my $signature = $data.value[3];
 
-  say "-----------------------------------------------------------------";
+#`[  ]
   say "headers1: ";
-  say cbor-deco($headers1);
+  say $headers1;
   say "headers2: ";
-  say $headers2;
+  #say cbor-deco($headers2);
   say "CBOR data: ";
   say cbor-deco($cbor_data);
   say "signature: ";
   say $signature;
-  
-  if ($diagnostics) { say cbor-diagnostic($decompressed); }
+  #say cbor-diagnostic($decompressed);
 
 }
 
