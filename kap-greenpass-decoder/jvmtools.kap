@@ -1,0 +1,131 @@
+namespace("jvmtools")
+⍝ Despite numerous efforts to try to make loadJar load a single jar file and multiple jar files depending
+⍝ on what it is given as an argument, it didn't work out. But because of these cases, loading a single jar and
+⍝ multiple jar files, work separately in their own functions, let's keep it that way.
+
+⍝ so,
+⍝ loadJar "filepath"
+⍝ loadMultiJar "filepath1" "filepath2"
+
+∇ loadJar (jarName) {
+ ⍝ jarName ← "../classes/myJar.jar" relative/absolute dir + jarfile name
+ fullpath ← { ~("/" ∊ ¯1↑⍵) → ⍵←⍵, "/" } jarName
+ fileClass ← jvm:findClass "java.io.File"
+ stringClass ← jvm:findClass "java.lang.String"
+ fileConstructor ← jvm:findConstructor⟦fileClass; stringClass⟧
+ filePathObj ← jvm:createInstance⟦fileConstructor; fullpath⟧
+ toURI ← jvm:findMethod⟦fileClass; "toURI"⟧
+ uri ← jvm:callMethod⟦toURI; filePathObj⟧
+ toURL ← jvm:findMethod⟦fileClass; "toURL"⟧
+ url ← jvm:callMethod⟦toURL; filePathObj⟧
+ urlArray ← jvm:createArrayInstance⟦jvm:findClass "java.net.URL"; 1⟧
+ jvm:arraySetElement (urlArray; 0; url)
+ classloaderClass ← jvm:findClass "java.net.URLClassLoader" 
+ getClassMethod ← jvm:findMethod⟦jvm:findClass "java.lang.Object"; "getClass"⟧
+ classloaderConstructor ← jvm:findConstructor⟦classloaderClass; jvm:callMethod⟦getClassMethod; jvm:createArrayInstance⟦jvm:findClass "java.net.URL"; 0⟧⟧⟧
+ classloaderObj ← jvm:createInstance⟦classloaderConstructor; urlArray⟧
+ jarloaderClass ← jvm:findClass "java.util.jar.JarFile" 
+ jarloaderConstructor ← jvm:findConstructor⟦jarloaderClass; stringClass⟧
+ jarloaderObj ← jvm:createInstance⟦jarloaderConstructor; jarName⟧
+ entriesMethod ← jvm:findMethod⟦jarloaderClass; "entries"⟧
+ entriesObj ← jvm:callMethod⟦entriesMethod; jarloaderObj⟧
+ classMap ← map ⍬
+ classNames ← ⍬
+ enumClass ← jvm:findClass "java.util.Enumeration"
+ hasmoreMethod ← jvm:findMethod⟦enumClass; "hasMoreElements"⟧
+ nextMethod ← jvm:findMethod⟦enumClass; "nextElement"⟧
+ entryClass ← jvm:findClass "java.util.jar.JarEntry"
+ getnameMethod ← jvm:findMethod⟦entryClass; "getRealName"⟧
+ while ("true"≡jvm:fromJvm jvm:callMethod⟦jvm:findMethod⟦jvm:findClass "java.lang.Boolean"; "toString"⟧; jvm:callMethod⟦hasmoreMethod; entriesObj⟧⟧) {
+   entryObj ← jvm:callMethod⟦nextMethod; entriesObj⟧
+   entryName ← jvm:callMethod⟦getnameMethod; entryObj⟧
+   n←jvm:fromJvm entryName
+   if ((".class"≡¯6↑n)∧("META-"≢5↑n)) {
+      className ← ¯6↓n
+      className ← "/" regex:replace (className; ".")
+      classNames ← classNames, ⊂className
+      classNameJ ← jvm:toJvmString className
+      loadclassMethod ← jvm:findMethod⟦classloaderClass; "loadClass"; stringClass⟧
+      { 
+        loadedClass ← jvm:callMethod⟦loadclassMethod; classloaderObj; classNameJ⟧   
+        classMap ← classMap mapPut className loadedClass
+      } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "failed to load ", classNameJ }
+   }
+ }
+ classMap
+}
+declare(:export loadJar)
+
+∇ loadMultiJar (jarName) {
+  {
+    if (~((≡⍵)>1 ∧ (↑⍴⍵)>1)) {
+      throw "Argument is an array of strings of the form \"../classes/myJar.jar\" \"../classes/myJar2.jar\" \"../classes/myJar3.jar\" "
+    }
+  } jarName
+  
+  fileClass ← jvm:findClass "java.io.File"
+  stringClass ← jvm:findClass "java.lang.String"
+  jarloaderClass ← jvm:findClass "java.util.jar.JarFile" 
+  jarloaderConstructor ← jvm:findConstructor⟦jarloaderClass; stringClass⟧
+  if ((≡jarName)>1 ∧ (↑⍴jarName)>1) {
+    jarloaderObjArray ← { jvm:createInstance⟦jarloaderConstructor; ⍵⟧ }¨ jarName
+  } else { jarloaderObjArray ← jvm:createInstance⟦jarloaderConstructor; jarName⟧ }
+  entriesMethod ← jvm:findMethod⟦jarloaderClass; "entries"⟧
+  if ((↑⍴jarName)>1) {
+    entriesObjArray ← { jvm:callMethod⟦entriesMethod; ⍵⟧ }¨ jarloaderObjArray
+  } else { entriesObjArray ← jvm:callMethod⟦entriesMethod; jarloaderObjArray⟧ }
+  classMap ← map ⍬
+  classNames ← ⍬
+  enumClass ← jvm:findClass "java.util.Enumeration"
+  hasmoreMethod ← jvm:findMethod⟦enumClass; "hasMoreElements"⟧
+  nextMethod ← jvm:findMethod⟦enumClass; "nextElement"⟧
+  entryClass ← jvm:findClass "java.util.jar.JarEntry"
+  getnameMethod ← jvm:findMethod⟦entryClass; "getRealName"⟧
+  fileConstructor ← jvm:findConstructor⟦fileClass; stringClass⟧
+  toURI ← jvm:findMethod⟦fileClass; "toURI"⟧
+  toURL ← jvm:findMethod⟦fileClass; "toURL"⟧
+
+  ⍝ jarName ← "../classes/myJar.jar" "../classes/myJar2.jar" "../classes/myJar3.jar" 
+  ⍝ an array of relative/absolute dir + jarfile names
+  urlList ← {
+    fullpath ← { ~("/" ∊ ¯1↑⍵) → ⍵←⍵, "/" } ⍵
+    filePathObj ← jvm:createInstance⟦fileConstructor; fullpath⟧
+    uri ← jvm:callMethod⟦toURI; filePathObj⟧
+    url ← jvm:callMethod⟦toURL; filePathObj⟧
+   }¨ jarName
+   urlArray ← jvm:createArrayInstance⟦jvm:findClass "java.net.URL"; ↑⍴jarName⟧
+   (⍳⍴urlList) { jvm:arraySetElement (urlArray; ↑⍺; ↑⍵) }¨ urlList
+   classloaderClass ← jvm:findClass "java.net.URLClassLoader" 
+   getClassMethod ← jvm:findMethod⟦jvm:findClass "java.lang.Object"; "getClass"⟧
+   classloaderConstructor ← jvm:findConstructor⟦classloaderClass; jvm:callMethod⟦getClassMethod;   jvm:createArrayInstance⟦jvm:findClass "java.net.URL"; 0⟧⟧⟧
+   classloaderObj ← jvm:createInstance⟦classloaderConstructor; urlArray⟧
+   loadclassMethod ← jvm:findMethod⟦classloaderClass; "loadClass"; stringClass⟧
+   
+   {
+     arg ← ⍵
+     while ("true"≡jvm:fromJvm jvm:callMethod⟦jvm:findMethod⟦jvm:findClass "java.lang.Boolean"; "toString"⟧;     jvm:callMethod⟦hasmoreMethod; arg⟧⟧) {
+       entryObj ← jvm:callMethod⟦nextMethod; arg⟧
+       entryName ← jvm:callMethod⟦getnameMethod; entryObj⟧
+       n←jvm:fromJvm entryName
+       if ((".class"≡¯6↑n)∧("META-"≢5↑n)) {
+          className ← ¯6↓n
+          className ← "/" regex:replace (className; ".")
+          classNames ← classNames, ⊂className
+          classNameJ ← jvm:toJvmString className
+          { 
+            loadedClass ← jvm:callMethod⟦loadclassMethod; classloaderObj; classNameJ⟧   
+            classMap ← classMap mapPut className loadedClass
+          } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "failed to load ", classNameJ }
+       }
+     }
+   }¨ entriesObjArray
+
+  classMap
+}
+declare(:export loadMultiJar)
+
+jvmByteArrayFromString ⇐ { s←jvm:findClass "java.lang.String" ⋄ jvm:callMethod⟦jvm:findMethod⟦s; "getBytes"; s⟧; jvm:toJvmString ⍵; jvm:toJvmString "UTF-8"⟧ }
+declare(:export jvmByteArrayFromString)
+jvmByteArrayFromKapArray ⇐ { ret ← jvm:createArrayInstance⟦jvm:findPrimitiveTypeClass 'jvm:byte; (↑⍴)⍵⟧ ⋄ (⍳⍴⍵) { jvm:arraySetElement (ret; ↑⍺; jvm:toJvmByte (↑⍵)) }¨ ⍵ ⋄ ret } 
+declare(:export jvmByteArrayFromKapArray)
+

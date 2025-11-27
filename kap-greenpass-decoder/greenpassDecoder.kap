@@ -1,0 +1,150 @@
+namespace("greenpass")
+import("jvmtools")
+
+use("./jvmtools.kap")
+
+wd ← "/home/user/greenpass/kap-greenpass-decoder"
+
+libs ← loadMultiJar (wd,"/lib/cose-java-1.1.0.jar") `
+                    (wd,"/lib/cbor-4.5.2.jar") `
+                    (wd,"/lib/eddsa-0.3.0.jar") `
+                    (wd,"/lib/numbers-1.8.2.jar") `
+                    (wd,"/lib/base45-0.0.3.jar")
+
+⍝ imports 
+cborobjectClass ← libs.("com.upokecenter.cbor.CBORObject")
+cbortypeClass ← libs.("com.upokecenter.cbor.CBORType")
+dataformatexceptionClass ← jvm:findClass "java.util.zip.DataFormatException"
+inflaterClass ← jvm:findClass "java.util.zip.Inflater"
+base45Class ← libs.("nl.minvws.encoding.Base45")
+
+
+⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝
+⍝ helper functions
+
+getDocs ⇐ {
+  objectOrClass ← ⍵
+  inspector ← (loadJar wd,"/lib/ClassInspector.jar").("ClassInspector")
+
+  ⍝ Determine if input is an Instance or a Class
+  c ← jvm:callMethod⟦jvm:findMethod⟦objectOrClass; "getClass"⟧; objectOrClass⟧
+  n ← jvm:fromJvm (jvm:callMethod⟦jvm:findMethod⟦c; "getName"⟧; c⟧)
+  
+  if (n ≡ "java.lang.Class") {
+      targetClass ← objectOrClass
+  } else {
+      targetClass ← jvm:callMethod⟦jvm:findMethod⟦objectOrClass; "getClass"⟧; objectOrClass⟧
+  }
+  
+  ⍝ Call the static inspect method
+  inspectMethod ← jvm:findMethod⟦inspector; "inspect"; jvm:findClass "java.lang.Class"⟧
+  result ← jvm:fromJvm jvm:callMethod⟦inspectMethod; inspector; targetClass⟧
+  result
+}
+
+handleException ⇐ {
+	exception ← ⍺
+	ioExceptionClass ← jvm:findClass "java.io.IOException"
+    throwableClass ← jvm:findClass "java.lang.Throwable"
+	getMessageMethod ← jvm:findMethod⟦throwableClass; "getMessage"⟧
+	message ← jvm:callMethod⟦getMessageMethod; exception⟧
+	toString ← jvm:callMethod⟦jvm:findMethod⟦throwableClass; "toString"⟧; exception⟧
+	when {
+		(jvm:instanceOf⟦exception; ioExceptionClass⟧) { throw "Error reading stream: ",message }
+		(1) { throw "Caught exception! ", message }
+	}
+}
+
+toJavaBytes ⇐ { b←⍵ ⋄ if (b < 128) { →b } else { →(b-256) } }
+
+toPythonBytes ⇐ { b←⍵ ⋄ 256|(b + 256) }
+
+prettyprint ⇐ { l←⍴⍵ ⋄ a←(⍵,(30-30|l)⍴ 0) ⋄ b←↑(⌈l÷30) ⋄ ⊣ o3:show b 30⍴a }
+
+⍝
+⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝
+
+
+decompressZlib ⇐ {
+	compressedData ← toJavaBytes¨ ⍵
+    i ← jvm:findPrimitiveTypeClass 'jvm:int
+    compressedJavaArray ← jvmtools:jvmByteArrayFromKapArray compressedData
+    arraylengthMethod ← jvm:findMethod⟦jvm:findClass "java.lang.reflect.Array"; "getLength"; jvm:findClass "java.lang.Object"⟧
+    len ← jvm:fromJvm jvm:callMethod⟦arraylengthMethod; null; compressedJavaArray⟧
+    ⊣ io:println "Java compressed length: ", len
+    hexformatClass ← jvm:findClass "java.util.HexFormat"
+    hexformat ← jvm:callMethod⟦jvm:findMethod⟦hexformatClass; "ofDelimiter"; jvm:findClass "java.lang.String"⟧; hexformatClass; jvm:toJvmString ", "⟧
+    formathexMethod ← jvm:findMethod⟦hexformatClass; "formatHex"; jvm:findPrimitiveTypeClass 'jvm:byteArray; i; i⟧
+    ⊣ io:println "Compressed last 16 hex: ", jvm:fromJvm jvm:callMethod⟦formathexMethod; hexformat; compressedJavaArray; jvm:toJvmInt (len - 16); jvm:toJvmInt len⟧
+	inflaterConstructor ← jvm:findConstructor⟦inflaterClass⟧ 
+	inflater ← jvm:createInstance⟦inflaterConstructor⟧
+	setinputMethod ← jvm:findMethod⟦inflaterClass; "setInput"; jvm:findPrimitiveTypeClass 'jvm:byteArray⟧
+	jvm:callMethod⟦setinputMethod; inflater; jvmtools:jvmByteArrayFromKapArray compressedData⟧
+    result ← jvm:createArrayInstance⟦jvm:findPrimitiveTypeClass 'jvm:byte; 4096⟧
+    inflateMethod ← jvm:findMethod⟦inflaterClass; "inflate"; jvm:findPrimitiveTypeClass 'jvm:byteArray⟧
+    resultLength ← jvm:callMethod⟦inflateMethod; inflater; result⟧
+    jvm:callMethod⟦jvm:findMethod⟦inflaterClass; "end"⟧; inflater⟧
+    r ← jvm:fromJvm resultLength
+    ⊣ io:println "inflate returned (raw jvm value): ", resultLength
+    ⊣ io:println "result buffer last 16 (raw hex): ", jvm:fromJvm jvm:callMethod⟦formathexMethod; hexformat; result; jvm:toJvmInt (r - 16); jvm:toJvmInt r⟧
+    output ← jvm:createArrayInstance⟦jvm:findPrimitiveTypeClass 'jvm:byte; r⟧
+    sys ← jvm:findClass "java.lang.System"
+    o ← jvm:findClass "java.lang.Object"
+    arraycopyMethod ← jvm:findMethod⟦sys; "arraycopy"; o; i; o; i; i⟧
+    jvm:callMethod⟦arraycopyMethod; sys; result; jvm:toJvmInt 0; output; jvm:toJvmInt 0; resultLength⟧
+    ⊣ io:println "output last 16 (raw hex): ", jvm:fromJvm jvm:callMethod⟦formathexMethod; hexformat; output; jvm:toJvmInt (r - 16); jvm:toJvmInt r⟧
+    → output
+}
+
+decode ⇐ {
+  hc1str ← ⍵
+
+  ⍝ RAW QR-string
+  qrcode ← 4↓hc1str
+  ⊣ io:println "QR code length: ", ⍴qrcode
+
+  ⍝ Decode Base45
+  decoderobj ← jvm:callMethod⟦jvm:findMethod⟦base45Class; "getDecoder"⟧; base45Class⟧
+  decoder ← libs.("nl.minvws.encoding.Base45$Decoder")
+  b45decodeMethod ← jvm:findMethod⟦decoder; "decode"; jvm:findClass "java.lang.String"⟧
+  base45Decoded ← jvm:fromJvm jvm:callMethod⟦b45decodeMethod; decoderobj; jvm:toJvmString qrcode⟧
+  ⊣ io:println "Base45 decoded length: ", ⍴base45Decoded
+
+  ⍝ Decompress ZLIB 
+  zlibDecompressed ← decompressZlib base45Decoded
+  bbb←(jvm:fromJvm zlibDecompressed)
+  ⊣ io:println "ZLIB decompressed length: ", ⍴bbb
+
+  ⍝ Decode COSE message
+  messageClass ← greenpass:libs.("COSE.Message")
+  decodebytesMethod ← jvm:findMethod⟦messageClass; "DecodeFromBytes"; jvm:findPrimitiveTypeClass 'jvm:byteArray⟧
+  coseMessage ← jvm:callMethod⟦decodebytesMethod; messageClass; zlibDecompressed⟧ 
+  ⊣ io:println "Debug: COSE message decoded successfully"
+  
+  sign1Message ← coseMessage
+
+  ⍝ Extract CBOR payload
+  sign1msgClass ← libs.("COSE.Sign1Message")
+  cborClass ← libs.("com.upokecenter.cbor.CBORObject")
+  getcontentMethod ← jvm:findMethod⟦sign1msgClass; "GetContent"⟧
+  payload ← jvm:callMethod⟦getcontentMethod; sign1Message⟧
+  ⊣ io:println "Debug: CBOR payload extracted, length: ", ⍴(jvm:fromJvm payload)
+  
+  phdr ← jvm:callMethod⟦jvm:findMethod⟦sign1msgClass; "getProtectedAttributes"⟧; sign1Message⟧
+  ⊣ io:println "PHDR: ", phdr
+  uhdr ← jvm:callMethod⟦jvm:findMethod⟦sign1msgClass; "getUnprotectedAttributes"⟧; sign1Message⟧
+  ⊣ io:println "UHDR: ", uhdr
+
+  cborArray ← jvm:callMethod⟦jvm:findMethod⟦sign1msgClass; "EncodeToCBORObject"⟧; sign1Message⟧
+  signatureCBOR ← jvm:callMethod⟦jvm:findMethod⟦cborClass; "get"; jvm:findPrimitiveTypeClass 'jvm:int⟧; cborArray; jvm:toJvmInt 3⟧
+  
+  ⍝ 5. Convert to Byte Array signature ← signatureCBOR.GetByteString ⍬
+  sig ← jvm:callMethod⟦jvm:findMethod⟦cborClass; "GetByteString"⟧; signatureCBOR⟧
+  ⊣ io:println "Signature: "
+  prettyprint toPythonBytes¨ (jvm:fromJvm sig)
+
+  cbordecodeMethod ← jvm:findMethod⟦cborClass; "DecodeFromBytes"; jvm:findPrimitiveTypeClass 'jvm:byteArray⟧
+  cbor ← jvm:callMethod⟦cbordecodeMethod; cborClass; payload⟧
+  jsonpass ← json:readString jvm:fromJvm jvm:callMethod⟦jvm:findMethod⟦cborClass; "toString"⟧; cbor⟧
+  jsonpass
+}
