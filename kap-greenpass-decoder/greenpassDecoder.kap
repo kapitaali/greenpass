@@ -27,13 +27,13 @@ getDocs ⇐ {
   inspector ← (loadJar wd,"/lib/ClassInspector.jar").("ClassInspector")
 
   ⍝ Determine if input is an Instance or a Class
-  c ← jvm:callMethod⟦jvm:findMethod⟦objectOrClass; "getClass"⟧; objectOrClass⟧
-  n ← jvm:fromJvm (jvm:callMethod⟦jvm:findMethod⟦c; "getName"⟧; c⟧)
-  
+  c ← jvm:callMethod⟦jvm:findMethod⟦jvm:findClass "java.lang.Class"; "getClass"⟧; objectOrClass⟧
+  n ← jvm:fromJvm (jvm:callMethod⟦jvm:findMethod⟦jvm:findClass "java.lang.Class"; "getName"⟧; c⟧)
+  ⊣ io:println n
   if (n ≡ "java.lang.Class") {
       targetClass ← objectOrClass
   } else {
-      targetClass ← jvm:callMethod⟦jvm:findMethod⟦objectOrClass; "getClass"⟧; objectOrClass⟧
+      targetClass ← jvm:callMethod⟦jvm:findMethod⟦jvm:findClass "java.lang.Class"; "getClass"⟧; objectOrClass⟧
   }
   
   ⍝ Call the static inspect method
@@ -41,6 +41,7 @@ getDocs ⇐ {
   result ← jvm:fromJvm jvm:callMethod⟦inspectMethod; inspector; targetClass⟧
   result
 }
+
 
 handleException ⇐ {
 	exception ← ⍺
