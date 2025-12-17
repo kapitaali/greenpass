@@ -1,0 +1,52 @@
+{
+    "6": 1623162117,
+    "4": 1638714117,
+    "1": "EE",
+    "-260":
+    {
+        "1":
+        {
+            "ver": "1.0.0",
+            "v":
+            [
+                {
+                    "ci": "01/EE/TIS/9C0KAVIIYH7CZAB02O#O",
+                    "tg": "840539006",
+                    "dt": "2021-04-16",
+                    "sd": 2.0,
+                    "is": "TIS",
+                    "mp": "EU/1/21/1529",
+                    "ma": "ORG-100001699",
+                    "co": "EE",
+                    "vp": "J07BX03",
+                    "dn": 2.0
+                }
+            ],
+            "nam":
+            {
+                "fnt": "EE<<<<<<<<<<<<LAST<NAME",
+                "fn": "ee38310275089-last-name",
+                "gn": "ee38310275089-first-name",
+                "gnt": "EE<<<<<<<<<<<<FIRST<NAME"
+            },
+            "dob": "1983-10-27"
+        }
+    },
+    "__PRIVATE_KEY__": [
+"-----BEGIN PRIVATE KEY-----",
+"MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgBpduQUJ6kxzoPpqH",
+"mP5+ooVejomrmqXOv7+GT3o8D2ahRANCAASseb5x277xtJN3MliAGW8G1Svd128X",
+"QLw3vw7R8BjIYuDc42j5jrlOR0tZzYy/v4HtRS+MvZe5qpNdWgtwU4xL",
+"-----END PRIVATE KEY-----"],
+    "__CERTIFICATE__": [
+"-----BEGIN CERTIFICATE-----",
+"MIIBdTCCARoCCQDgC5Os3o4mgDAKBggqhkjOPQQDAjBCMQswCQYDVQQGEwJTRTER",
+"MA8GA1UECgwIS2lyZWkgQUIxDjAMBgNVBAsMBWhjZXJ0MRAwDgYDVQQDDAdpc3N1",
+"ZXIxMB4XDTIxMDMyNDEyMTE0M1oXDTIzMTIxOTEyMTE0M1owQjELMAkGA1UEBhMC",
+"U0UxETAPBgNVBAoMCEtpcmVpIEFCMQ4wDAYDVQQLDAVoY2VydDEQMA4GA1UEAwwH",
+"aXNzdWVyMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABKx5vnHbvvG0k3cyWIAZ",
+"bwbVK93XbxdAvDe/DtHwGMhi4NzjaPmOuU5HS1nNjL+/ge1FL4y9l7mqk11aC3BT",
+"jEswCgYIKoZIzj0EAwIDSQAwRgIhAKmgB/CTtrVeQ2Yh/ZK4nfQwtwIyLcKd3odL",
+"T5rAQADyAiEA/dRCuifyT1DENa09rdnnyzq3+uAEIzha7tRUvllZW/8=",
+"-----END CERTIFICATE-----"]
+}

@@ -1,0 +1,350 @@
+namespace("greenpass")
+wd ← "/home/theb/Documents/kodaus/array/kap/demo/java-interop/kap-greenpass-encoder"
+
+import("jvmtools")
+
+use("./jvmtools.kap")
+
+libs ← loadMultiJar (wd,"/lib/cose-java-1.1.0.jar") `
+                    (wd,"/lib/cbor-4.5.2.jar") `
+                    (wd,"/lib/eddsa-0.3.0.jar") `
+                    (wd,"/lib/numbers-1.8.2.jar") `
+                    (wd,"/lib/base45-0.0.3.jar") `
+                    (wd,"/lib/bcprov-jdk15on-1.70.jar")
+
+⍝ imports 
+
+stringClass ← jvm:findClass "java.lang.String"
+objectClass ← jvm:findClass "java.lang.Object"
+cbortypeClass ← libs.("com.upokecenter.cbor.CBORType")
+base45Class ← libs.("nl.minvws.encoding.Base45")
+cborobjectClass ← libs.("com.upokecenter.cbor.CBORObject")
+baisClass ← jvm:findClass "java.io.ByteArrayInputStream"
+stringreaderClass ← jvm:findClass "java.io.StringReader"
+stdcharsetsClass ← jvm:findClass "java.nio.charset.StandardCharsets"
+filesClass ← jvm:findClass "java.nio.file.Files"
+pathsClass ← jvm:findClass "java.nio.file.Paths"
+keyfactoryClass ← jvm:findClass "java.security.KeyFactory"
+msgdigestClass ← jvm:findClass "java.security.MessageDigest"
+privatekeyClass ← jvm:findClass "java.security.PrivateKey"
+securityClass ← jvm:findClass "java.security.Security"
+certfactoryClass ← jvm:findClass "java.security.cert.CertificateFactory"
+x509Class ← jvm:findClass "java.security.cert.X509Certificate"
+pkcs8Class ← jvm:findClass "java.security.spec.PKCS8EncodedKeySpec"
+instantClass ← jvm:findClass "java.time.Instant"
+arraysClass ← jvm:findClass "java.util.Arrays"
+deflaterClass ← jvm:findClass "java.util.zip.Deflater"
+defosClass ← jvm:findClass "java.util.zip.DeflaterOutputStream" 
+bcproviderClass ← libs.("org.bouncycastle.jce.provider.BouncyCastleProvider")
+pemobjectClass ← libs.("org.bouncycastle.util.io.pem.PemObject")
+pemreaderClass ← libs.("org.bouncycastle.util.io.pem.PemReader")
+sign1msgClass ← libs.("COSE.Sign1Message")
+algidClass ← libs.("COSE.AlgorithmID")
+headerkeysClass ← libs.("COSE.HeaderKeys")
+attributeClass ← libs.("COSE.Attribute")
+onekeyClass ← libs.("COSE.OneKey")
+base64Class ← jvm:findClass "java.util.Base64"
+baosClass ← jvm:findClass "java.io.ByteArrayOutputStream"
+
+⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝
+⍝ helper functions
+
+getDocs ⇐ {
+  objectOrClass ← ⍵
+  inspector ← (loadJar wd,"/lib/ClassInspector.jar").("ClassInspector")
+
+  ⍝ Determine if input is an Instance or a Class
+  c ← jvm:callMethod⟦jvm:findMethod⟦jvm:findClass "java.lang.Class"; "getClass"⟧; objectOrClass⟧
+  n ← jvm:fromJvm (jvm:callMethod⟦jvm:findMethod⟦jvm:findClass "java.lang.Class"; "getName"⟧; c⟧)
+  ⊣ io:println n
+  if (n ≡ "java.lang.Class") {
+      targetClass ← objectOrClass
+  } else {
+      targetClass ← jvm:callMethod⟦jvm:findMethod⟦jvm:findClass "java.lang.Class"; "getClass"⟧; objectOrClass⟧
+  }
+  
+  ⍝ Call the static inspect method
+  inspectMethod ← jvm:findMethod⟦inspector; "inspect"; jvm:findClass "java.lang.Class"⟧
+  result ← jvm:fromJvm jvm:callMethod⟦inspectMethod; inspector; targetClass⟧
+  result
+}
+
+handleException ⇐ {
+  exception ← ⍺
+  ioExceptionClass ← jvm:findClass "java.io.IOException"
+    throwableClass ← jvm:findClass "java.lang.Throwable"
+  getMessageMethod ← jvm:findMethod⟦throwableClass; "getMessage"⟧
+  message ← jvm:callMethod⟦getMessageMethod; exception⟧
+  toString ← jvm:callMethod⟦jvm:findMethod⟦throwableClass; "toString"⟧; exception⟧
+  when {
+    (jvm:instanceOf⟦exception; ioExceptionClass⟧) { throw "Error reading stream: ",message }
+    (1) { throw "Caught exception! ", message, ":: ", toString }
+  }
+}
+
+toJavaBytes ⇐ { b←⍵ ⋄ if (b < 128) { →b } else { →(b-256) } }
+
+toPythonBytes ⇐ { b←⍵ ⋄ 256|(b + 256) }
+
+prettyprint ⇐ { l←⍴⍵ ⋄ a←(⍵,(30-30|l)⍴ 0) ⋄ b←↑(⌈l÷30) ⋄ ⊣ o3:show b 30⍴a }
+
+⍝
+⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝
+⍝
+⍝  How this works 
+⍝
+⍝    Dependencies: We rely heavily on com.augustcellars.cose for the heavy lifting of cryptographic signing. This is the industry-standard library for Java COSE implementation.
+⍝
+⍝    Key Handling: The parsePrivateKey method uses BouncyCastle (PEMReader) to cleanly convert the raw PEM string from the URL into a Java PrivateKey object valid for EC operations.
+⍝
+⍝    KID Generation: The spec requires the "Key ID" to be the first 8 bytes of the SHA-256 fingerprint of the certificate. This is implemented in calculateKid.
+⍝
+⍝    Payload Structure: The generatePayload function builds the nested map structure. com.upokecenter.cbor (which comes with the cose library) is used to ensure the Integers are encoded correctly as CBOR integers, not strings.
+⍝
+⍝    Compression: We use the standard java.util.zip.Deflater for ZLIB compression.
+⍝
+⍝    Base45: Since Base45 is a niche encoding used almost exclusively for Health Certificates, I included a compact implementation at the bottom of the file to save you from finding a separate jar file for it.
+
+
+generatePayload ⇐ {
+        data ← ⍵                       ⍝ data is given as map
+        now ← ⌈(time:timeMillis 0)÷1000
+        exp ← now + 365 × 24 × 60 × 60
+
+        newarrayMethod ← jvm:findMethod⟦cborobjectClass; "NewArray"⟧
+        newmapMethod ← jvm:findMethod⟦cborobjectClass; "NewMap"⟧
+        root ← jvm:callMethod⟦newmapMethod; cborobjectClass⟧
+        addMethod ← jvm:findMethod⟦cborobjectClass; "Add"; objectClass; objectClass⟧
+        jvm:callMethod⟦addMethod; root; jvm:toJvmString ⍕1; jvm:toJvmString data.("1")⟧
+        jvm:callMethod⟦addMethod; root; jvm:toJvmString ⍕6; jvm:toJvmString ⍕now⟧
+        jvm:callMethod⟦addMethod; root; jvm:toJvmString ⍕4; jvm:toJvmString ⍕exp⟧
+
+        hcertMap ← jvm:callMethod⟦newmapMethod; cborobjectClass⟧
+        v1Map ← jvm:callMethod⟦newmapMethod; cborobjectClass⟧
+
+        vArr ← jvm:callMethod⟦newarrayMethod; cborobjectClass⟧
+        vac ← jvm:callMethod⟦newmapMethod; cborobjectClass⟧
+        
+        jvm:callMethod⟦addMethod; vac; jvm:toJvmString "ci"; jvm:toJvmString (↑data.("-260").("1").("v")).("ci")⟧
+        jvm:callMethod⟦addMethod; vac; jvm:toJvmString "co"; jvm:toJvmString (↑data.("-260").("1").("v")).("co")⟧
+        jvm:callMethod⟦addMethod; vac; jvm:toJvmString "dt"; jvm:toJvmString (↑data.("-260").("1").("v")).("dt")⟧
+        jvm:callMethod⟦addMethod; vac; jvm:toJvmString "is"; jvm:toJvmString (↑data.("-260").("1").("v")).("is")⟧
+        jvm:callMethod⟦addMethod; vac; jvm:toJvmString "ma"; jvm:toJvmString (↑data.("-260").("1").("v")).("ma")⟧
+        jvm:callMethod⟦addMethod; vac; jvm:toJvmString "mp"; jvm:toJvmString (↑data.("-260").("1").("v")).("mp")⟧
+        jvm:callMethod⟦addMethod; vac; jvm:toJvmString "tg"; jvm:toJvmString (↑data.("-260").("1").("v")).("tg")⟧
+        jvm:callMethod⟦addMethod; vac; jvm:toJvmString "vp"; jvm:toJvmString (↑data.("-260").("1").("v")).("vp")⟧
+        jvm:callMethod⟦addMethod; vac; jvm:toJvmString "dn"; jvm:toJvmInt (↑data.("-260").("1").("v")).("dn")⟧
+        jvm:callMethod⟦addMethod; vac; jvm:toJvmString "sd"; jvm:toJvmInt (↑data.("-260").("1").("v")).("sd")⟧
+
+        add1Method ← jvm:findMethod⟦cborobjectClass; "Add"; objectClass⟧
+        jvm:callMethod⟦add1Method; vArr; vac⟧
+
+        nam ← jvm:callMethod⟦newmapMethod; cborobjectClass⟧
+        jvm:callMethod⟦addMethod; nam; jvm:toJvmString "fn"; jvm:toJvmString (↑data.("-260").("1").("nam")).("fn")⟧
+        jvm:callMethod⟦addMethod; nam; jvm:toJvmString "fnt"; jvm:toJvmString (↑data.("-260").("1").("nam")).("fnt")⟧
+        jvm:callMethod⟦addMethod; nam; jvm:toJvmString "gn"; jvm:toJvmString (↑data.("-260").("1").("nam")).("gn")⟧
+        jvm:callMethod⟦addMethod; nam; jvm:toJvmString "gnt"; jvm:toJvmString (↑data.("-260").("1").("nam")).("gnt")⟧
+        
+
+        jvm:callMethod⟦addMethod; v1Map; jvm:toJvmString "v"; vArr⟧
+        jvm:callMethod⟦addMethod; v1Map; jvm:toJvmString "nam"; nam⟧
+        jvm:callMethod⟦addMethod; v1Map; jvm:toJvmString "dob"; jvm:toJvmString data.("-260").("1").("dob")⟧
+        jvm:callMethod⟦addMethod; v1Map; jvm:toJvmString "ver"; jvm:toJvmString "1.3.0"⟧
+        
+        jvm:callMethod⟦addMethod; hcertMap; jvm:toJvmString ⍕1; v1Map⟧ 
+        jvm:callMethod⟦addMethod; root; jvm:toJvmString "-260"; hcertMap⟧ 
+        root
+}
+declare(:export generatePayload)
+
+
+⍝ private static byte[] signPayload(CBORObject payload, PrivateKey privateKey, byte[] kid) throws Exception {
+signPayload ⇐ {
+  (payload; privateKey; kid) ← ⍵
+  ⊣ io:println "Payload: ", payload
+  ⊣ io:println "PrivateKey: ", privateKey
+  ⊣ io:println "KID: ", kid
+  sign1Constructor ← jvm:findConstructor⟦sign1msgClass⟧  
+  msg ← jvm:createInstance⟦sign1Constructor⟧
+  encodebytesMethod ← jvm:findMethod⟦cborobjectClass; "EncodeToBytes"⟧
+  payloadbytes ← ⍬
+  {
+    payloadbytes ← jvm:callMethod⟦encodebytesMethod; payload⟧
+    ⊣ io:println "Encoding payload to bytes: ", payloadbytes
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Error encoding to bytes" ⋄ handleException ⍵ }
+  setcontentMethod ← jvm:findMethod⟦sign1msgClass; "SetContent"; jvm:findPrimitiveTypeClass 'jvm:byteArray⟧
+  {
+    jvm:callMethod⟦setcontentMethod; msg; payloadbytes⟧
+    ⊣ io:println "Setting encoded payload as message"
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Error setting content" ⋄ handleException ⍵ }
+  algidMethod ← jvm:findMethod⟦algidClass; "valueOf"; stringClass⟧
+  algoField ← jvm:findField⟦headerkeysClass; "Algorithm"⟧
+  algo ← jvm:getField⟦algoField; null⟧
+  algid ← jvm:callMethod⟦algidMethod; algidClass; "ECDSA_256"⟧
+  algidcborMethod ← jvm:findMethod⟦algidClass; "AsCBOR"⟧
+  algidcbor ← ⍬
+  {
+    algidcbor ← jvm:callMethod⟦algidcborMethod; algid⟧
+    ⊣ io:println "Algorithm as CBOR: ", algidcbor
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Error turning algo into CBOR object" ⋄ handleException ⍵ }
+  protField ← jvm:findField⟦attributeClass; "PROTECTED"⟧
+  protected ← jvm:getField⟦protField; null⟧
+  addattributeMethod ← jvm:findMethod⟦sign1msgClass; "addAttribute"; headerkeysClass; cborobjectClass; jvm:findPrimitiveTypeClass 'jvm:int⟧
+  {
+    jvm:callMethod⟦addattributeMethod; msg; algo; algidcbor; protected⟧
+    ⊣ io:println "Adding algorithm attribute: PROTECTED"
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Error adding algorithm attribute: PROTECTED" ⋄ handleException ⍵ }
+  headerkidField ← jvm:findField⟦headerkeysClass; "KID"⟧
+  headerkid ← jvm:getField⟦headerkidField; null⟧
+  fromobjectMethod ← jvm:findMethod⟦cborobjectClass; "FromObject"; jvm:findPrimitiveTypeClass 'jvm:byteArray⟧
+  kidcbor ← ⍬
+  {
+    kidcbor ← jvm:callMethod⟦fromobjectMethod; cborobjectClass; kid⟧
+    ⊣ io:println "KID as CBOR: ", kidcbor
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Error turning KID into CBOR object" ⋄ handleException ⍵ }
+  {
+    jvm:callMethod⟦addattributeMethod; msg; headerkid; kidcbor; protected⟧
+    ⊣ io:println "Adding KID attribute: PROTECTED"
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Error adding KID attribute: PROTECTED" ⋄ handleException ⍵ }
+  onekeyConstructor ← jvm:findConstructor⟦onekeyClass; jvm:findClass "java.security.PublicKey"; jvm:findClass "java.security.PrivateKey"⟧  
+  onekey ← jvm:createInstance⟦onekeyConstructor; null; privateKey⟧
+  signMethod ← jvm:findMethod⟦sign1msgClass; "sign"; onekeyClass⟧
+  {
+    jvm:callMethod⟦signMethod; msg; onekey⟧
+    ⊣ io:println "Signing payload"
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Error signing payload" ⋄ handleException ⍵ }
+  s1encodebytesMethod ← jvm:findMethod⟦sign1msgClass; "EncodeToBytes"⟧
+  ret ← ⍬
+  {
+    ret ← jvm:callMethod⟦s1encodebytesMethod; msg⟧
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Error encoding message to bytes" ⋄ handleException ⍵ }
+  ret
+}
+
+⍝ private static byte[] compress(byte[] data) throws Exception {
+compress ⇐ {
+  data ← ⍵  
+  baosConstructor ← jvm:findConstructor⟦baosClass⟧
+  baos ← jvm:createInstance⟦baosConstructor⟧
+  deflaterConstructor ← jvm:findConstructor⟦deflaterClass; jvm:findPrimitiveTypeClass 'jvm:int⟧
+  BEST_COMPRESSION_Field ← jvm:findField⟦deflaterClass; "BEST_COMPRESSION"⟧
+  BEST_COMPRESSION ← jvm:getField⟦BEST_COMPRESSION_Field; null⟧
+  deflater ← jvm:createInstance⟦deflaterConstructor; BEST_COMPRESSION⟧
+  dosConstructor ← jvm:findConstructor⟦defosClass; jvm:findClass "java.io.OutputStream"; deflaterClass⟧
+  dos ← jvm:createInstance⟦dosConstructor; baos; deflater⟧
+  
+  datalen ← ≢(jvm:fromJvm data)
+  ⊣ io:println "Data length: ", datalen
+  writeMethod ← jvm:findMethod⟦defosClass; "write"; jvm:findPrimitiveTypeClass 'jvm:byteArray⟧
+  jvm:callMethod⟦writeMethod; dos; data⟧
+  jvm:callMethod⟦jvm:findMethod⟦defosClass; "close"⟧; dos⟧
+  tobytearrayMethod ← jvm:findMethod⟦baosClass; "toByteArray"⟧
+  res ← jvm:callMethod⟦tobytearrayMethod; baos⟧
+  res
+}
+
+⍝ private static byte[] calculateKid(String certPem) throws Exception {
+calculateKid ⇐ {  ⍝ argument: data.("__CERTIFICATE__")
+  cleanPem ← ,/↓¯1↓⍵
+  base64decoderobj ← jvm:callMethod⟦jvm:findMethod⟦base64Class; "getDecoder"⟧; base64Class⟧
+  base64decoder ← jvm:findClass "java.util.Base64$Decoder"
+  b64decodeMethod ← jvm:findMethod⟦base64decoder; "decode"; jvm:findClass "java.lang.String"⟧
+  base64Decoded ← jvm:fromJvm jvm:callMethod⟦b64decodeMethod; base64decoderobj; jvm:toJvmString cleanPem⟧
+  ⊣ io:println "Base64 decoded length: ", ⍴base64Decoded
+  
+  getinstanceMethod ← jvm:findMethod⟦certfactoryClass; "getInstance"; jvm:findClass "java.lang.String"⟧
+  fact ← jvm:callMethod⟦getinstanceMethod; certfactoryClass; jvm:toJvmString "X.509"⟧
+  baisConstructor ← jvm:findConstructor⟦baisClass; jvm:findPrimitiveTypeClass 'jvm:byteArray⟧
+  baisarg ← jvm:createInstance⟦baisConstructor; jvmtools:jvmByteArrayFromKapArray base64Decoded⟧
+  generatecertificateMethod ← jvm:findMethod⟦certfactoryClass; "generateCertificate"; jvm:findClass "java.io.InputStream"⟧
+  cert ← jvm:callMethod⟦generatecertificateMethod; fact; baisarg⟧
+  getdigestinstanceMethod ← jvm:findMethod⟦msgdigestClass; "getInstance"; jvm:findClass "java.lang.String"⟧
+  digest ← jvm:callMethod⟦getdigestinstanceMethod; msgdigestClass; "SHA-256"⟧
+  encodedcert ← jvm:callMethod⟦jvm:findMethod⟦x509Class; "getEncoded"⟧; cert⟧
+  digestMethod ← jvm:findMethod⟦msgdigestClass; "digest"; jvm:findPrimitiveTypeClass 'jvm:byteArray⟧
+  fingerprint ← jvm:callMethod⟦digestMethod; digest; encodedcert⟧
+  copyofrangeMethod ← jvm:findMethod⟦arraysClass; "copyOfRange"; jvm:findPrimitiveTypeClass 'jvm:byteArray; jvm:findPrimitiveTypeClass 'jvm:int; jvm:findPrimitiveTypeClass 'jvm:int⟧
+  jvm:callMethod⟦copyofrangeMethod; null; fingerprint; jvm:toJvmInt 0; jvm:toJvmInt 8⟧
+}
+
+⍝ private static PrivateKey parsePrivateKey(String pem) throws Exception {
+parsePrivateKey ⇐ { ⍝ argument: data.("__PRIVATE_KEY__")
+  ⍝ pem ← ,/↓¯1↓⍵
+  pem ← ,/{⍵, "\n"}¨ ⍵
+  stringreaderConstructor ← jvm:findConstructor⟦jvm:findClass "java.io.StringReader"; jvm:findClass "java.lang.String"⟧
+  sr ← jvm:createInstance⟦stringreaderConstructor; jvm:toJvmString pem⟧
+  pemreaderConstructor ← jvm:findConstructor⟦pemreaderClass; jvm:findClass "java.io.Reader"⟧
+  reader ← jvm:createInstance⟦pemreaderConstructor; sr⟧
+  readpemobjectMethod ← jvm:findMethod⟦pemreaderClass; "readPemObject"⟧
+  pemObject ← jvm:callMethod⟦readpemobjectMethod; reader⟧
+  content ← jvm:callMethod⟦jvm:findMethod⟦pemobjectClass; "getContent"⟧; pemObject⟧
+  privKeySpec ← jvm:createInstance⟦jvm:findConstructor⟦pkcs8Class; jvm:findPrimitiveTypeClass 'jvm:byteArray⟧; content⟧
+  factory ← jvm:callMethod⟦jvm:findMethod⟦keyfactoryClass; "getInstance"; jvm:findClass "java.lang.String"; jvm:findClass "java.lang.String"⟧; keyfactoryClass; "EC"; "BC"⟧
+  generateprivateMethod ← jvm:findMethod⟦keyfactoryClass; "generatePrivate"; jvm:findClass "java.security.spec.KeySpec"⟧
+  jvm:callMethod⟦generateprivateMethod; factory; privKeySpec⟧
+}
+
+
+encode ⇐ { ⍝ argument: path to datafile
+  filepath ← ⍵
+
+  ⍝ Register Bouncy Castle for Crypto
+  bcprov ← jvm:createInstance⟦jvm:findConstructor⟦bcproviderClass⟧⟧
+  addproviderMethod ← jvm:findMethod⟦jvm:findClass "java.security.Security"; "addProvider"; jvm:findClass "java.security.Provider"⟧
+  jvm:callMethod⟦addproviderMethod; bcproviderClass; bcprov⟧
+ 
+  ⍝ 1. Load Data AND Keys from File
+  ⊣ io:println "[*] Parsing file: ", filepath
+  inputData ← json:read filepath
+  ⊣ io:println "============="
+  ⊣ o3:show inputData
+  ⊣ io:println "============="
+  ⍝ 2. Validate Keys exist in file
+  if ( (~(⊂"__PRIVATE_KEY__") ∊ (mapKeys inputData)) ∨ (~(⊂"__CERTIFICATE__") ∊ (mapKeys inputData))) {
+    throw "File must contain both -----BEGIN PRIVATE KEY----- and -----BEGIN CERTIFICATE----- sections."
+  }
+  ⍝ 3. Parse Keys
+  ⊣ io:println "[*] Parsing Crypto Keys..."
+  privateKey ← ⍬
+  kid ← ⍬
+  { 
+    privateKey ← parsePrivateKey inputData.("__PRIVATE_KEY__")
+    kid ← calculateKid inputData.("__CERTIFICATE__")
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Error parsing keys" ⋄ handleException ⍵ }
+  ⊣ io:println "[*] Calculated Key ID (KID): ", io:toHex¨ jvm:fromJvm kid
+  ⍝ 4. Construct Payload
+  payload ← ⍬
+  {
+    payload ← generatePayload inputData
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Error constructing payload" ⋄ handleException ⍵ }
+  ⍝ 5. Sign
+  coseBytes ← ⍬
+  {
+    coseBytes ← signPayload (payload; privateKey; kid)
+    ⊣ io:println "COSE bytes: ", jvm:fromJvm coseBytes
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Error signing payload" ⋄ handleException ⍵ }
+  ⍝ 6. Compress & Encode
+  compressed ← ⍬
+  {
+    compressed ← compress coseBytes
+    ⊣ io:println "Compressed bytes: ", jvm:fromJvm compressed
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Compression error" ⋄ handleException ⍵ }
+  encoderobj ← ⍬
+  encoder ← libs.("nl.minvws.encoding.Base45$Encoder")
+  b45encodeMethod ← jvm:findMethod⟦encoder; "encodeToString"; jvm:findPrimitiveTypeClass 'jvm:byteArray⟧
+  encoderobj ← jvm:callMethod⟦jvm:findMethod⟦base45Class; "getEncoder"⟧; base45Class⟧
+  base45Encoded ← ⍬
+  {
+    base45Encoded ← jvm:fromJvm jvm:callMethod⟦b45encodeMethod; encoderobj; compressed⟧
+    ⊣ io:println "Base45 encoded: ", base45Encoded
+  } catch 'jvm:jvmMethodCallException λ{ ⊣ io:println "Encoder error" ⋄ handleException ⍵ }
+  hcert ← "HC1:", base45Encoded
+  ⊣ io:println "\n=========================================="
+  ⊣ io:println "GENERATED COVID PASS (HCERT):"
+  ⊣ io:println "=========================================="
+  ⊣ io:println hcert
+  ⊣ io:println "=========================================="
+}
+declare(:export encode)
+
+⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝⍝
